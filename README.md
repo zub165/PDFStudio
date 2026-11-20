@@ -2,6 +2,9 @@
 
 A PDF editor built with Flutter for Web, Windows, macOS, Linux and Android.
 
+**Live demo:** https://zub165.github.io/PDFstdio/
+**Repository:** https://github.com/zub165/PDFstdio
+
 ## Features
 
 - Open and view PDFs (pinch or double-tap to zoom, select text)
