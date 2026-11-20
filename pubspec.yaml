@@ -1,0 +1,28 @@
+name: pdf_studio
+description: A cross-platform PDF editor for Web, Windows, macOS, Linux and Android.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Viewer + annotation editing (highlight, underline, sticky notes) on every platform.
+  syncfusion_flutter_pdfviewer: ^27.1.48
+  # Programmatic PDF editing: rotate, delete pages, watermark, password protect.
+  syncfusion_flutter_pdf: ^27.1.48
+  # Open and save files. withData: true makes it work on the web too.
+  file_picker: ^8.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/app_icon.png
