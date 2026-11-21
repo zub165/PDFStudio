@@ -57,9 +57,12 @@ class FileService {
   /// Returns the chosen path on desktop, or null if cancelled.
   /// On web the browser downloads the file instead.
   static Future<String?> savePdf(Uint8List bytes, String fileName) {
+    final trimmed = fileName.trim();
+    final normalized =
+        trimmed.toLowerCase().endsWith('.pdf') ? trimmed : '$trimmed.pdf';
     return FilePicker.platform.saveFile(
       dialogTitle: 'Save PDF',
-      fileName: fileName,
+      fileName: normalized,
       type: FileType.custom,
       allowedExtensions: const ['pdf'],
       bytes: bytes,

@@ -25,6 +25,30 @@ void main() {
     locked.dispose();
   });
 
+  test('tracks unsaved changes across edits, saves and close', () async {
+    final original = PdfDocument();
+    original.pages.add();
+    final bytes = Uint8List.fromList(await original.save());
+    original.dispose();
+
+    final state = PdfEditorState();
+    addTearDown(state.dispose);
+    state.load(bytes, 'sample.pdf');
+    expect(state.isDirty, isFalse);
+
+    state.setPassword('secret');
+    expect(state.isDirty, isTrue);
+    state.markSaved();
+    expect(state.isDirty, isFalse);
+
+    await state.transform((doc) => doc.pages.add());
+    expect(state.isDirty, isTrue);
+
+    state.close();
+    expect(state.isDirty, isFalse);
+    expect(state.hasDocument, isFalse);
+  });
+
   test('load clears a password from a previous document', () async {
     final original = PdfDocument();
     original.pages.add();

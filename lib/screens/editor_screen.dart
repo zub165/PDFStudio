@@ -118,7 +118,38 @@ class _EditorScreenState extends State<EditorScreen> {
     super.dispose();
   }
 
+  bool _guardBusy() {
+    if (!_state.isBusy) return true;
+    _showMessage('Please wait for the current edit to finish.');
+    return false;
+  }
+
+  Future<bool> _confirmDiscardChanges() async {
+    if (!_state.isDirty) return true;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Discard changes?'),
+        content: const Text(
+          'This document has unsaved changes. Save it before continuing?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
   Future<void> _open() async {
+    if (!_guardBusy() || !await _confirmDiscardChanges()) return;
     try {
       final picked = await FileService.pickPdf();
       if (picked == null) return;
@@ -132,26 +163,29 @@ class _EditorScreenState extends State<EditorScreen> {
       });
       _showMessage('Opened ${picked.name}');
     } catch (e) {
-      _showError('Could not open that file. $e');
+      _showError('Could not open that file. ${_friendlyError(e)}');
     }
   }
 
   Future<void> _save() async {
-    if (!_state.hasDocument) return;
+    if (!_guardBusy() || !_state.hasDocument) return;
     try {
       final bytes = await _state.exportBytes();
       final path = await FileService.savePdf(bytes, _state.name);
       if (kIsWeb) {
-        _showMessage('Download started');
+        _state.markSaved();
+        _showMessage('Download requested');
       } else if (path != null) {
+        _state.markSaved();
         _showMessage('Saved ${_state.name}');
       }
     } catch (e) {
-      _showError('Could not save the file. $e');
+      _showError('Could not save the file. ${_friendlyError(e)}');
     }
   }
 
-  void _close() {
+  Future<void> _close() async {
+    if (!_guardBusy() || !await _confirmDiscardChanges()) return;
     _state.close();
     setState(() {
       _mode = PdfAnnotationMode.none;
@@ -164,24 +198,35 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   void _removePassword() {
+    if (!_guardBusy()) return;
     _state.clearPassword();
     _showMessage('Password removed. Save to update the file.');
   }
 
   void _setMode(PdfAnnotationMode mode) {
+    if (!_guardBusy()) return;
     final next = _mode == mode ? PdfAnnotationMode.none : mode;
-    setState(() => _mode = next);
+    setState(() {
+      _mode = next;
+      _placement = null;
+      _placementPointer = null;
+    });
     _state.viewerController.annotationMode = next;
   }
 
   void _zoom(double amount) {
+    if (!_guardBusy()) return;
     final controller = _state.viewerController;
     controller.zoomLevel = (controller.zoomLevel + amount).clamp(1.0, 3.0);
   }
 
-  void _resetZoom() => _state.viewerController.zoomLevel = 1.0;
+  void _resetZoom() {
+    if (!_guardBusy()) return;
+    _state.viewerController.zoomLevel = 1.0;
+  }
 
   void _turnPage(bool forward) {
+    if (!_guardBusy()) return;
     final controller = _state.viewerController;
     if (controller.pageCount < 1) return;
     if (forward) {
@@ -197,9 +242,11 @@ class _EditorScreenState extends State<EditorScreen> {
     Uint8List? bytes,
   }) {
     setState(() {
+      _mode = PdfAnnotationMode.none;
       _placement = _Placement(kind, values, bytes: bytes);
       _placementPointer = null;
     });
+    _state.viewerController.annotationMode = PdfAnnotationMode.none;
     _showMessage('Tap or drag on the page to choose the position.');
   }
 
@@ -359,11 +406,12 @@ class _EditorScreenState extends State<EditorScreen> {
     String progressMessage,
     void Function(PdfDocument doc) edit,
   ) async {
+    if (!_guardBusy() || !_state.hasDocument) return;
     try {
       await _state.transform(edit);
       _showMessage(progressMessage);
     } catch (e) {
-      _showError('$e');
+      _showError(_friendlyError(e));
     }
   }
 
@@ -376,6 +424,10 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   Future<void> _confirmDeletePage() async {
+    if (_state.viewerController.pageCount <= 1) {
+      _showError('A PDF needs at least one page.');
+      return;
+    }
     final index = _state.currentPage - 1;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -408,17 +460,26 @@ class _EditorScreenState extends State<EditorScreen> {
       title: 'Add watermark',
       hint: 'For example: DRAFT or CONFIDENTIAL',
     );
-    if (text == null || text.isEmpty) return;
+    if (text == null) return;
+    if (text.isEmpty) {
+      _showError('Enter watermark text.');
+      return;
+    }
     await _runEdit('Watermark added', (doc) => PdfTools.addWatermark(doc, text));
   }
 
   Future<void> _protectWithPassword() async {
+    if (!_guardBusy()) return;
     final password = await _askText(
       title: 'Set password',
       hint: 'Required to open and edit this PDF',
       obscure: true,
     );
-    if (password == null || password.isEmpty) return;
+    if (password == null) return;
+    if (password.isEmpty) {
+      _showError('Enter a password.');
+      return;
+    }
     _state.setPassword(password);
     _showMessage('Password will be applied when you save.');
   }
@@ -575,6 +636,7 @@ class _EditorScreenState extends State<EditorScreen> {
             ),
             ElevatedButton(
               onPressed: () {
+                setState(() => error = null);
                 final parsedSize = double.tryParse(sizeController.text.trim());
                 final parsedColor = _parseHexColor(colorController.text.trim());
                 if (parsedSize == null ||
@@ -618,10 +680,10 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Color? _parseHexColor(String value) {
     final hex = value.trim().replaceFirst('#', '');
-    if (hex.length != 6 && hex.length != 8) return null;
+    if (hex.length != 6) return null;
     final parsed = int.tryParse(hex, radix: 16);
     if (parsed == null) return null;
-    return Color(hex.length == 6 ? 0xFF000000 | parsed : parsed);
+    return Color(0xFF000000 | parsed);
   }
 
   PdfColor _pdfColor(Color color) {
@@ -767,7 +829,11 @@ class _EditorScreenState extends State<EditorScreen> {
       ('Find', 'Existing text on this page', ''),
       ('Replace with', 'Leave empty to remove the text', ''),
     ]);
-    if (result == null || result.values[0].isEmpty) return;
+    if (result == null) return;
+    if (result.values[0].isEmpty) {
+      _showError('Enter the text to find.');
+      return;
+    }
     await _replaceAt(pageIndex, result.values[0], result.values[1]);
   }
 
@@ -782,11 +848,35 @@ class _EditorScreenState extends State<EditorScreen> {
         ('Replace with', 'Leave empty to remove the text', ''),
       ],
     );
-    if (result == null || result.values[0].isEmpty) return;
+    if (result == null) return;
+    if (result.values[0].isEmpty) {
+      _showError('Enter the text to find.');
+      return;
+    }
     await _replaceAt(pageIndex, result.values[0], result.values[1]);
   }
 
-  Future<void> _replaceAt(int pageIndex, String find, String replacement) async {
+  Future<void> _applyFontToSelection() async {
+    final selected = _selectedText;
+    if (selected == null || selected.isEmpty) {
+      _showError('Select text in the PDF first.');
+      return;
+    }
+    await _replaceAt(
+      _selectedPageIndex ?? _state.currentPage - 1,
+      selected,
+      selected,
+      successLabel: 'Font applied to',
+    );
+  }
+
+  Future<void> _replaceAt(
+    int pageIndex,
+    String find,
+    String replacement, {
+    String successLabel = 'Updated',
+  }) async {
+    if (!_guardBusy()) return;
     var count = 0;
     try {
       await _state.transform(
@@ -805,23 +895,28 @@ class _EditorScreenState extends State<EditorScreen> {
         ),
       );
     } catch (e) {
-      _showError('$e');
+      _showError(_friendlyError(e));
       return;
     }
     _clearSelectedText();
     _showMessage(
       count == 0
           ? 'Text not found on this page'
-          : 'Updated $count occurrence${count == 1 ? '' : 's'}',
+          : '$successLabel $count occurrence${count == 1 ? '' : 's'}',
     );
   }
 
   Future<void> _deleteText() async {
+    if (!_guardBusy()) return;
     final pageIndex = _state.currentPage - 1;
     final result = await _askFields('Delete text', const [
       ('Find', 'Existing text to hide on this page', ''),
     ]);
-    if (result == null || result.values[0].isEmpty) return;
+    if (result == null) return;
+    if (result.values[0].isEmpty) {
+      _showError('Enter the text to find.');
+      return;
+    }
     final values = result.values;
     var count = 0;
     try {
@@ -829,14 +924,14 @@ class _EditorScreenState extends State<EditorScreen> {
         (doc) => count = PdfTools.deleteText(doc, pageIndex, values[0]),
       );
     } catch (e) {
-      _showError('$e');
+      _showError(_friendlyError(e));
       return;
     }
     _clearSelectedText();
     _showMessage(
       count == 0
           ? 'Text not found on this page'
-          : 'Removed $count occurrence${count == 1 ? '' : 's'}',
+          : 'Hidden $count occurrence${count == 1 ? '' : 's'} (text remains extractable)',
     );
   }
 
@@ -1158,6 +1253,11 @@ class _EditorScreenState extends State<EditorScreen> {
 
   void _showError(String message) => _showMessage('Error: $message');
 
+  String _friendlyError(Object error) {
+    final text = error.toString();
+    return text.replaceFirst(RegExp(r'^[A-Za-z]+\s*Error:\s*'), '');
+  }
+
   String get _activeToolLabel =>
       _annotationTools.firstWhere((tool) => tool.$1 == _mode).$2;
 
@@ -1196,6 +1296,7 @@ class _EditorScreenState extends State<EditorScreen> {
             control: true, shift: true): _redo,
         const SingleActivator(LogicalKeyboardKey.keyZ,
             meta: true, shift: true): _redo,
+        const SingleActivator(LogicalKeyboardKey.keyY, control: true): _redo,
         LogicalKeySet(LogicalKeyboardKey.pageUp): () => _turnPage(false),
         LogicalKeySet(LogicalKeyboardKey.pageDown): () => _turnPage(true),
         LogicalKeySet(LogicalKeyboardKey.escape): _cancelPlacement,
@@ -1239,12 +1340,12 @@ class _EditorScreenState extends State<EditorScreen> {
                     IconButton(
                       tooltip: 'Close document',
                       icon: const Icon(Icons.close_outlined),
-                      onPressed: _close,
+                      onPressed: !_state.isBusy ? _close : null,
                     ),
                   IconButton(
                     tooltip: 'Open PDF (Ctrl/Cmd + O)',
                     icon: const Icon(Icons.folder_open_outlined),
-                    onPressed: _open,
+                    onPressed: !_state.isBusy ? _open : null,
                   ),
                   IconButton(
                     tooltip: 'Save PDF (Ctrl/Cmd + S)',
@@ -1434,7 +1535,13 @@ class _EditorScreenState extends State<EditorScreen> {
                       color: theme.colorScheme.primary,
                     ),
                     const SizedBox(width: 8),
-                    Text(_placementLabel),
+                    Flexible(
+                      child: Text(
+                        _placementLabel,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                     IconButton(
                       tooltip: 'Cancel placement (Esc)',
                       icon: const Icon(Icons.close, size: 18),
@@ -1491,6 +1598,7 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Widget _buildAnnotationBar() {
     final theme = Theme.of(context);
+    final interactive = !_state.isBusy && _placement == null;
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
@@ -1521,7 +1629,7 @@ class _EditorScreenState extends State<EditorScreen> {
                     label: Text(label),
                     selected: _mode == mode,
                     showCheckmark: false,
-                    onSelected: (_) => _setMode(mode),
+                    onSelected: interactive ? (_) => _setMode(mode) : null,
                   );
                 },
               ),
@@ -1534,8 +1642,13 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Widget _buildDocumentBar() {
     final theme = Theme.of(context);
-    final busy = _state.isBusy;
-    final tools = <(String, String, IconData, VoidCallback?)>[
+    return ListenableBuilder(
+      listenable: Listenable.merge(
+          [_state, _state.viewerController, _undoController]),
+      builder: (context, _) {
+        final busy = _state.isBusy;
+        final controller = _state.viewerController;
+        final tools = <(String, String, IconData, VoidCallback?)>[
       ('History', 'Undo', Icons.undo,
           _undoController.value.canUndo && !busy ? _undo : null),
       ('History', 'Redo', Icons.redo,
@@ -1544,12 +1657,14 @@ class _EditorScreenState extends State<EditorScreen> {
       ('View', 'Zoom in', Icons.zoom_in, !busy ? () => _zoom(0.25) : null),
       ('View', 'Reset zoom', Icons.aspect_ratio, !busy ? _resetZoom : null),
       ('Page', 'Previous', Icons.keyboard_arrow_left,
-          !busy ? () => _turnPage(false) : null),
+          !busy && controller.pageNumber > 1 ? () => _turnPage(false) : null),
       ('Page', 'Next', Icons.keyboard_arrow_right,
-          !busy ? () => _turnPage(true) : null),
+          !busy && controller.pageNumber < controller.pageCount
+              ? () => _turnPage(true)
+              : null),
       ('Page', 'Rotate', Icons.rotate_right, !busy ? _rotateCurrentPage : null),
       ('Page', 'Delete', Icons.delete_outline,
-          !busy ? _confirmDeletePage : null),
+          !busy && controller.pageCount > 1 ? _confirmDeletePage : null),
       ('Content', 'Watermark', Icons.water_drop_outlined,
           !busy ? _addWatermark : null),
       ('Content', 'Password', Icons.lock_outline,
@@ -1564,6 +1679,12 @@ class _EditorScreenState extends State<EditorScreen> {
       ('Content', 'Hide text', Icons.backspace_outlined,
           !busy ? _deleteText : null),
       ('Content', 'Font', Icons.font_download, !busy ? _editFontSettings : null),
+      (
+        'Content',
+        'Apply font',
+        Icons.format_color_text,
+        !busy && _selectedText != null ? _applyFontToSelection : null
+      ),
       ('Content', 'Add text', Icons.text_fields, !busy ? _addText : null),
       ('Content', 'Add box', Icons.crop_square_outlined, !busy ? _addBox : null),
       ('Forms', 'Yes / No', Icons.radio_button_checked,
@@ -1589,19 +1710,21 @@ class _EditorScreenState extends State<EditorScreen> {
       previousGroup = group;
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        border: Border(bottom: Divider.createBorderSide(context)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-        child: Wrap(
-          spacing: 2,
-          runSpacing: 2,
-          children: children,
-        ),
-      ),
+        return Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            border: Border(bottom: Divider.createBorderSide(context)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Wrap(
+              spacing: 2,
+              runSpacing: 2,
+              children: children,
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1662,12 +1785,20 @@ class _EditorScreenState extends State<EditorScreen> {
                   _placement != null ? _placementLabel : _activeToolLabel,
                   style: theme.textTheme.labelSmall,
                 ),
+                if (_state.isDirty) ...[
+                  const SizedBox(width: 12),
+                  Icon(Icons.edit_outlined,
+                      size: 14, color: theme.colorScheme.primary),
+                  const SizedBox(width: 4),
+                  Text('Unsaved', style: theme.textTheme.labelSmall),
+                ],
                 if (_state.hasPassword) ...[
                   const SizedBox(width: 12),
                   Icon(Icons.lock_outline,
                       size: 14, color: theme.colorScheme.primary),
                   const SizedBox(width: 4),
-                  Text('Protected', style: theme.textTheme.labelSmall),
+                  Text('Password pending',
+                      style: theme.textTheme.labelSmall),
                 ],
                 const Spacer(),
                 Text(
@@ -1688,10 +1819,10 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   void _undo() {
-    if (_undoController.value.canUndo) _undoController.undo();
+    if (_guardBusy() && _undoController.value.canUndo) _undoController.undo();
   }
 
   void _redo() {
-    if (_undoController.value.canRedo) _undoController.redo();
+    if (_guardBusy() && _undoController.value.canRedo) _undoController.redo();
   }
 }

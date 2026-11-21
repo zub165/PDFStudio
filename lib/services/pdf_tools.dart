@@ -8,7 +8,7 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 class PdfTools {
   /// Rotates one page 90 degrees clockwise.
   static void rotatePage(PdfDocument doc, int index) {
-    final page = doc.pages[index];
+    final page = _page(doc, index);
     final next = (page.rotation.index + 1) % PdfPageRotateAngle.values.length;
     page.rotation = PdfPageRotateAngle.values[next];
   }
@@ -18,6 +18,7 @@ class PdfTools {
     if (doc.pages.count <= 1) {
       throw StateError('A PDF needs at least one page.');
     }
+    _page(doc, index);
     doc.pages.removeAt(index);
   }
 
@@ -75,8 +76,8 @@ class PdfTools {
   }) {
     if (text.trim().isEmpty) return;
     _positive(size, 'Font size', min: 4, max: 72);
-    _finite(x, 'X');
-    _finite(y, 'Y');
+    _nonNegative(x, 'X');
+    _nonNegative(y, 'Y');
     final page = _page(doc, pageIndex);
     final font = _font(family, size,
         bold: bold,
@@ -104,8 +105,8 @@ class PdfTools {
   }) {
     _positive(width, 'Width');
     _positive(height, 'Height');
-    _finite(x, 'X');
-    _finite(y, 'Y');
+    _nonNegative(x, 'X');
+    _nonNegative(y, 'Y');
     final page = _page(doc, pageIndex);
     page.graphics.drawRectangle(
       pen: PdfPen(color ?? PdfColor(0, 0, 0), width: 1.5),
@@ -125,8 +126,8 @@ class PdfTools {
   }) {
     _positive(width, 'Width');
     _positive(height, 'Height');
-    _finite(x, 'X');
-    _finite(y, 'Y');
+    _nonNegative(x, 'X');
+    _nonNegative(y, 'Y');
     final page = _page(doc, pageIndex);
     final field = PdfTextBoxField(
       page,
@@ -219,8 +220,8 @@ class PdfTools {
     double gap = 80,
   }) {
     _positive(gap, 'Gap', min: 24);
-    _finite(x, 'X');
-    _finite(y, 'Y');
+    _nonNegative(x, 'X');
+    _nonNegative(y, 'Y');
     final page = _page(doc, pageIndex);
     final radio = PdfRadioButtonListField(
       page,
@@ -259,8 +260,8 @@ class PdfTools {
     double size = 16,
   }) {
     _positive(size, 'Size', min: 8);
-    _finite(x, 'X');
-    _finite(y, 'Y');
+    _nonNegative(x, 'X');
+    _nonNegative(y, 'Y');
     final page = _page(doc, pageIndex);
     final field = PdfCheckBoxField(
       page,
@@ -284,8 +285,8 @@ class PdfTools {
   }) {
     _positive(width, 'Width');
     _positive(height, 'Height');
-    _finite(x, 'X');
-    _finite(y, 'Y');
+    _nonNegative(x, 'X');
+    _nonNegative(y, 'Y');
     final page = _page(doc, pageIndex);
     final label = caption.trim().isEmpty ? 'Click' : caption.trim();
     final field = PdfButtonField(
@@ -317,8 +318,8 @@ class PdfTools {
     }
     _positive(width, 'Width');
     _positive(height, 'Height');
-    _finite(x, 'X');
-    _finite(y, 'Y');
+    _nonNegative(x, 'X');
+    _nonNegative(y, 'Y');
     final page = _page(doc, pageIndex);
     final image = PdfBitmap(imageBytes);
     page.graphics.drawImage(image, Rect.fromLTWH(x, y, width, height));
@@ -373,6 +374,13 @@ class PdfTools {
   static void _finite(double value, String label) {
     if (!value.isFinite) {
       throw ArgumentError('$label must be a finite number.');
+    }
+  }
+
+  static void _nonNegative(double value, String label) {
+    _finite(value, label);
+    if (value < 0) {
+      throw ArgumentError('$label cannot be negative.');
     }
   }
 

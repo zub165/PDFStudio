@@ -73,6 +73,19 @@ void main() {
           x: 10, y: 10, size: 100),
       throwsArgumentError,
     );
+    expect(
+      () => PdfTools.addText(document, 0, 'Negative X',
+          x: -1, y: 10),
+      throwsArgumentError,
+    );
+    expect(
+      () => PdfTools.rotatePage(document, 4),
+      throwsStateError,
+    );
+    expect(
+      () => PdfTools.deletePage(document, -1),
+      throwsStateError,
+    );
 
     PdfTools.addFillableTextField(document, 0, 'same',
         x: 10, y: 10, width: 100, height: 20);

@@ -14,6 +14,7 @@ class PdfEditorState extends ChangeNotifier {
   int _revision = 0;
   int _pageNumber = 1;
   bool _busy = false;
+  bool _dirty = false;
 
   final PdfViewerController viewerController = PdfViewerController();
 
@@ -22,6 +23,7 @@ class PdfEditorState extends ChangeNotifier {
   int get revision => _revision;
   bool get hasDocument => _bytes != null;
   bool get isBusy => _busy;
+  bool get isDirty => _dirty;
   bool get hasPassword => _password != null && _password!.isNotEmpty;
 
   int get currentPage {
@@ -33,6 +35,7 @@ class PdfEditorState extends ChangeNotifier {
   void load(Uint8List bytes, String name) {
     _password = null;
     _pageNumber = 1;
+    _dirty = false;
     _loadDocument(bytes, name);
   }
 
@@ -41,6 +44,7 @@ class PdfEditorState extends ChangeNotifier {
     _name = 'document.pdf';
     _password = null;
     _pageNumber = 1;
+    _dirty = false;
     _revision++;
     viewerController.annotationMode = PdfAnnotationMode.none;
     notifyListeners();
@@ -49,35 +53,50 @@ class PdfEditorState extends ChangeNotifier {
   void setPageNumber(int page) {
     if (page < 1 || page == _pageNumber) return;
     _pageNumber = page;
+    notifyListeners();
   }
 
   void setPassword(String password) {
     _password = password;
+    _dirty = true;
     notifyListeners();
   }
 
   void clearPassword() {
     _password = null;
+    _dirty = true;
+    notifyListeners();
+  }
+
+  void markSaved() {
+    if (!_dirty) return;
+    _dirty = false;
     notifyListeners();
   }
 
   /// Returns the document with all current annotations included.
   /// A password, if set, is applied only to the exported bytes.
   Future<Uint8List> exportBytes() async {
-    var bytes = await _viewerBytes();
-    final password = _password;
-    if (password == null || password.isEmpty) return bytes;
-
-    final doc = PdfDocument(inputBytes: bytes);
+    if (_busy) throw StateError('Another edit is still running.');
+    _setBusy(true);
     try {
-      doc.security.userPassword = password;
-      doc.security.ownerPassword = password;
-      doc.security.algorithm = PdfEncryptionAlgorithm.aesx256Bit;
-      bytes = Uint8List.fromList(await doc.save());
+      var bytes = await _viewerBytes();
+      final password = _password;
+      if (password == null || password.isEmpty) return bytes;
+
+      final doc = PdfDocument(inputBytes: bytes);
+      try {
+        doc.security.userPassword = password;
+        doc.security.ownerPassword = password;
+        doc.security.algorithm = PdfEncryptionAlgorithm.aesx256Bit;
+        bytes = Uint8List.fromList(await doc.save());
+      } finally {
+        doc.dispose();
+      }
+      return bytes;
     } finally {
-      doc.dispose();
+      _setBusy(false);
     }
-    return bytes;
   }
 
   /// Applies a structural edit and reloads the result.
@@ -90,6 +109,7 @@ class PdfEditorState extends ChangeNotifier {
       try {
         edit(doc);
         final output = await doc.save();
+        _dirty = true;
         _loadDocument(Uint8List.fromList(output), _name);
       } finally {
         doc.dispose();
