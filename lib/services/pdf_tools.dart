@@ -67,13 +67,22 @@ class PdfTools {
     required double y,
     double size = 14,
     PdfColor? color,
+    PdfFontFamily family = PdfFontFamily.helvetica,
+    bool bold = false,
+    bool italic = false,
+    bool underline = false,
+    bool strikethrough = false,
   }) {
     if (text.trim().isEmpty) return;
     _positive(size, 'Font size', min: 4, max: 72);
     _finite(x, 'X');
     _finite(y, 'Y');
     final page = _page(doc, pageIndex);
-    final font = PdfStandardFont(PdfFontFamily.helvetica, size);
+    final font = _font(family, size,
+        bold: bold,
+        italic: italic,
+        underline: underline,
+        strikethrough: strikethrough);
     final maxWidth = page.getClientSize().width - x;
     page.graphics.drawString(
       text,
@@ -138,10 +147,18 @@ class PdfTools {
     PdfDocument doc,
     int pageIndex,
     String find,
-    String replacement,
-  ) {
+    String replacement, {
+    PdfFontFamily family = PdfFontFamily.helvetica,
+    double? size,
+    PdfColor? color,
+    bool bold = false,
+    bool italic = false,
+    bool underline = false,
+    bool strikethrough = false,
+  }) {
     final needle = find.trim();
     if (needle.isEmpty) return 0;
+    if (size != null) _positive(size, 'Font size', min: 4, max: 72);
     _page(doc, pageIndex);
     final matches = PdfTextExtractor(doc).findText(
       [needle],
@@ -166,12 +183,16 @@ class PdfTools {
         brush: PdfSolidBrush(PdfColor(255, 255, 255)),
       );
       if (replacement.isEmpty) continue;
-      final fontSize = (bounds.height * 0.78).clamp(6.0, 48.0);
+      final fontSize = size ?? (bounds.height * 0.78).clamp(6.0, 48.0);
       final available = pageWidth - bounds.left - 4;
       graphics.drawString(
         replacement,
-        PdfStandardFont(PdfFontFamily.helvetica, fontSize),
-        brush: PdfSolidBrush(PdfColor(0, 0, 0)),
+        _font(family, fontSize,
+            bold: bold,
+            italic: italic,
+            underline: underline,
+            strikethrough: strikethrough),
+        brush: PdfSolidBrush(color ?? PdfColor(0, 0, 0)),
         bounds: Rect.fromLTWH(
           bounds.left,
           bounds.top,
@@ -324,6 +345,29 @@ class PdfTools {
         mimeType: mimeType,
       ),
     );
+  }
+
+  static PdfFont _font(
+    PdfFontFamily family,
+    double size, {
+    bool bold = false,
+    bool italic = false,
+    bool underline = false,
+    bool strikethrough = false,
+  }) {
+    final styles = <PdfFontStyle>[
+      if (bold) PdfFontStyle.bold,
+      if (italic) PdfFontStyle.italic,
+      if (underline) PdfFontStyle.underline,
+      if (strikethrough) PdfFontStyle.strikethrough,
+    ];
+    if (styles.isEmpty) {
+      return PdfStandardFont(family, size, style: PdfFontStyle.regular);
+    }
+    if (styles.length == 1) {
+      return PdfStandardFont(family, size, style: styles.first);
+    }
+    return PdfStandardFont(family, size, multiStyle: styles);
   }
 
   static void _finite(double value, String label) {

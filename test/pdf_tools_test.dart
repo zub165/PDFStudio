@@ -30,6 +30,35 @@ void main() {
     reloaded.dispose();
   });
 
+  test('applies font family, style and color to text', () async {
+    final document = PdfDocument();
+    document.pages.add();
+
+    PdfTools.addText(document, 0, 'Styled text',
+        x: 36,
+        y: 36,
+        size: 18,
+        color: PdfColor(10, 20, 30),
+        family: PdfFontFamily.timesRoman,
+        bold: true,
+        italic: true,
+        underline: true,
+        strikethrough: true);
+
+    final saved = await document.save();
+    document.dispose();
+
+    final reloaded = PdfDocument(inputBytes: saved);
+    expect(
+      PdfTextExtractor(reloaded).extractText(
+            startPageIndex: 0,
+            endPageIndex: 0,
+          ),
+      contains('Styled text'),
+    );
+    reloaded.dispose();
+  });
+
   test('rejects invalid geometry and avoids duplicate field names', () {
     final document = PdfDocument();
     document.pages.add();

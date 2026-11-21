@@ -13,6 +13,7 @@ A PDF editor built with Flutter for Web, Windows, macOS, Linux and Android.
 - Add a diagonal text watermark to every page
 - Protect the file with an AES-256 password (applied when you save)
 - Select text in the viewer and use **Replace selected**, or find/replace text on the current page
+- **Font** tab: choose font family, size, color, bold, italic, underline and strikethrough for new/replaced text
 - Add new text, an outlined box, fillable text fields, checkboxes, labelled Yes/No radio choices and click-box push buttons
 - Place images on a page and attach video files to the PDF
 - Choose an exact position with **Pick on page**: tap or drag the crosshair over the PDF instead of typing X/Y

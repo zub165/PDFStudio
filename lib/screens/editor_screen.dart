@@ -33,6 +33,26 @@ class _Placement {
   final Uint8List? bytes;
 }
 
+class _FontSettings {
+  const _FontSettings({
+    required this.family,
+    required this.size,
+    required this.color,
+    this.bold = false,
+    this.italic = false,
+    this.underline = false,
+    this.strikethrough = false,
+  });
+
+  final PdfFontFamily family;
+  final double size;
+  final Color color;
+  final bool bold;
+  final bool italic;
+  final bool underline;
+  final bool strikethrough;
+}
+
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key});
 
@@ -48,6 +68,30 @@ class _EditorScreenState extends State<EditorScreen> {
   Offset? _placementPointer;
   String? _selectedText;
   int? _selectedPageIndex;
+  _FontSettings _fontSettings = const _FontSettings(
+    family: PdfFontFamily.helvetica,
+    size: 14,
+    color: Color(0xFF000000),
+  );
+
+  static const _fontFamilies = <(PdfFontFamily, String)>[
+    (PdfFontFamily.helvetica, 'Helvetica'),
+    (PdfFontFamily.courier, 'Courier'),
+    (PdfFontFamily.timesRoman, 'Times Roman'),
+    (PdfFontFamily.symbol, 'Symbol'),
+    (PdfFontFamily.zapfDingbats, 'Zapf Dingbats'),
+  ];
+
+  static const _fontColors = <(Color, String)>[
+    (Color(0xFF000000), 'Black'),
+    (Color(0xFFFFFFFF), 'White'),
+    (Color(0xFFE53935), 'Red'),
+    (Color(0xFF1E88E5), 'Blue'),
+    (Color(0xFF43A047), 'Green'),
+    (Color(0xFFFDD835), 'Yellow'),
+    (Color(0xFF8E24AA), 'Purple'),
+    (Color(0xFFEF6C00), 'Orange'),
+  ];
 
   static const _annotationTools = <(PdfAnnotationMode, String, IconData)>[
     (PdfAnnotationMode.none, 'Select', Icons.near_me_outlined),
@@ -226,8 +270,20 @@ class _EditorScreenState extends State<EditorScreen> {
       case _PlacementKind.text:
         await _runEdit(
           'Text added',
-          (doc) => PdfTools.addText(doc, pageIndex, values[0],
-              x: x, y: y, size: double.parse(values[3])),
+          (doc) => PdfTools.addText(
+            doc,
+            pageIndex,
+            values[0],
+            x: x,
+            y: y,
+            size: _fontSettings.size,
+            color: _pdfColor(_fontSettings.color),
+            family: _fontSettings.family,
+            bold: _fontSettings.bold,
+            italic: _fontSettings.italic,
+            underline: _fontSettings.underline,
+            strikethrough: _fontSettings.strikethrough,
+          ),
         );
       case _PlacementKind.box:
         await _runEdit(
@@ -367,6 +423,217 @@ class _EditorScreenState extends State<EditorScreen> {
     _showMessage('Password will be applied when you save.');
   }
 
+  Future<void> _editFontSettings() async {
+    final sizeController =
+        TextEditingController(text: '${_fontSettings.size}');
+    final colorController =
+        TextEditingController(text: _hexColor(_fontSettings.color));
+    var family = _fontSettings.family;
+    var bold = _fontSettings.bold;
+    var italic = _fontSettings.italic;
+    var underline = _fontSettings.underline;
+    var strikethrough = _fontSettings.strikethrough;
+    var previewColor = _fontSettings.color;
+    String? error;
+
+    final updated = await showDialog<_FontSettings>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setState) => AlertDialog(
+          title: const Text('Font'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                DropdownButtonFormField<PdfFontFamily>(
+                  initialValue: family,
+                  decoration: const InputDecoration(labelText: 'Font family'),
+                  items: [
+                    for (final (value, label) in _fontFamilies)
+                      DropdownMenuItem(value: value, child: Text(label)),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => family = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: sizeController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Font size (4-72)',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: colorController,
+                  decoration: const InputDecoration(
+                    labelText: 'Font color (#RRGGBB)',
+                  ),
+                  onChanged: (value) {
+                    final parsed = _parseHexColor(value);
+                    if (parsed != null) setState(() => previewColor = parsed);
+                  },
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final (swatch, label) in _fontColors)
+                      Tooltip(
+                        message: label,
+                        child: InkWell(
+                          onTap: () {
+                            colorController.text = _hexColor(swatch);
+                            setState(() => previewColor = swatch);
+                          },
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: swatch,
+                              border: Border.all(color: Colors.grey),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Bold'),
+                  value: bold,
+                  onChanged: (value) => setState(() => bold = value ?? false),
+                ),
+                CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Italic'),
+                  value: italic,
+                  onChanged: (value) => setState(() => italic = value ?? false),
+                ),
+                CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Underline'),
+                  value: underline,
+                  onChanged: (value) =>
+                      setState(() => underline = value ?? false),
+                ),
+                CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Strikethrough'),
+                  value: strikethrough,
+                  onChanged: (value) =>
+                      setState(() => strikethrough = value ?? false),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(dialogContext).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'Aa Bb Cc 123',
+                    style: TextStyle(
+                      color: previewColor,
+                      fontSize: 20,
+                      fontFamily: family == PdfFontFamily.courier
+                          ? 'monospace'
+                          : family == PdfFontFamily.timesRoman
+                              ? 'serif'
+                              : null,
+                      fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+                      fontStyle:
+                          italic ? FontStyle.italic : FontStyle.normal,
+                      decoration: TextDecoration.combine([
+                        if (underline) TextDecoration.underline,
+                        if (strikethrough) TextDecoration.lineThrough,
+                      ]),
+                    ),
+                  ),
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(error!, style: TextStyle(color: Colors.red.shade700)),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final parsedSize = double.tryParse(sizeController.text.trim());
+                final parsedColor = _parseHexColor(colorController.text.trim());
+                if (parsedSize == null ||
+                    !parsedSize.isFinite ||
+                    parsedSize < 4 ||
+                    parsedSize > 72) {
+                  setState(() => error = 'Font size must be between 4 and 72.');
+                  return;
+                }
+                if (parsedColor == null) {
+                  setState(() => error = 'Enter a color like #1E88E5.');
+                  return;
+                }
+                Navigator.of(dialogContext).pop(
+                  _FontSettings(
+                    family: family,
+                    size: parsedSize,
+                    color: parsedColor,
+                    bold: bold,
+                    italic: italic,
+                    underline: underline,
+                    strikethrough: strikethrough,
+                  ),
+                );
+              },
+              child: const Text('Apply'),
+            ),
+          ],
+        ),
+      ),
+    );
+    sizeController.dispose();
+    colorController.dispose();
+    if (updated == null) return;
+    setState(() => _fontSettings = updated);
+    _showMessage('Font updated');
+  }
+
+  String _hexColor(Color color) =>
+      '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+
+  Color? _parseHexColor(String value) {
+    final hex = value.trim().replaceFirst('#', '');
+    if (hex.length != 6 && hex.length != 8) return null;
+    final parsed = int.tryParse(hex, radix: 16);
+    if (parsed == null) return null;
+    return Color(hex.length == 6 ? 0xFF000000 | parsed : parsed);
+  }
+
+  PdfColor _pdfColor(Color color) {
+    final argb = color.toARGB32();
+    return PdfColor(
+      (argb >> 16) & 0xFF,
+      (argb >> 8) & 0xFF,
+      argb & 0xFF,
+      (argb >> 24) & 0xFF,
+    );
+  }
+
   Future<void> _addText() async {
     final pageIndex = _state.currentPage - 1;
     final result = await _askFields(
@@ -375,7 +642,6 @@ class _EditorScreenState extends State<EditorScreen> {
         ('Text', 'Text to place on the page', ''),
         ('X', 'Left position in PDF points', '72'),
         ('Y', 'Top position in PDF points', '72'),
-        ('Font size', 'For example: 14', '14'),
       ],
       pickOnPage: true,
     );
@@ -383,11 +649,6 @@ class _EditorScreenState extends State<EditorScreen> {
     final values = result.values;
     if (values[0].isEmpty) {
       _showError('Enter the text to add.');
-      return;
-    }
-    final size = double.tryParse(values[3]);
-    if (size == null || !size.isFinite || size < 4 || size > 72) {
-      _showError('Font size must be between 4 and 72.');
       return;
     }
     if (result.pickOnPage) {
@@ -529,7 +790,19 @@ class _EditorScreenState extends State<EditorScreen> {
     var count = 0;
     try {
       await _state.transform(
-        (doc) => count = PdfTools.replaceText(doc, pageIndex, find, replacement),
+        (doc) => count = PdfTools.replaceText(
+          doc,
+          pageIndex,
+          find,
+          replacement,
+          family: _fontSettings.family,
+          size: _fontSettings.size,
+          color: _pdfColor(_fontSettings.color),
+          bold: _fontSettings.bold,
+          italic: _fontSettings.italic,
+          underline: _fontSettings.underline,
+          strikethrough: _fontSettings.strikethrough,
+        ),
       );
     } catch (e) {
       _showError('$e');
@@ -1290,6 +1563,7 @@ class _EditorScreenState extends State<EditorScreen> {
       ),
       ('Content', 'Hide text', Icons.backspace_outlined,
           !busy ? _deleteText : null),
+      ('Content', 'Font', Icons.font_download, !busy ? _editFontSettings : null),
       ('Content', 'Add text', Icons.text_fields, !busy ? _addText : null),
       ('Content', 'Add box', Icons.crop_square_outlined, !busy ? _addBox : null),
       ('Forms', 'Yes / No', Icons.radio_button_checked,
